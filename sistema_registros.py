@@ -1,7 +1,9 @@
-import streamlit as st
+import os
+import unicodedata
+from datetime import datetime
 import pandas as pd
 import psycopg2
-from datetime import datetime
+import streamlit as st
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(
@@ -74,7 +76,39 @@ try:
 except Exception as e:
     st.error(f"Erro ao conectar ao Banco de Dados: {e}")
 
-# --- FUNÇÕES AUXILIARES ---
+# --- FUNÇÕES AUXILIARES DE PADRONIZAÇÃO ---
+def limpar_texto(texto):
+    """Remove acentos e converte o texto para MAIÚSCULAS."""
+    if not texto:
+        return ""
+    texto_norm = unicodedata.normalize('NFD', str(texto))
+    texto_sem_acento = "".join(c for c in texto_norm if unicodedata.category(c) != 'Mn')
+    return texto_sem_acento.upper().strip()
+
+def formatar_moeda(valor_str):
+    """Formata qualquer valor numérico no padrão R$ 0,00."""
+    if not valor_str:
+        return ""
+    texto = str(valor_str).replace("R$", "").strip()
+    if not texto:
+        return ""
+    
+    # Trata separadores decimais e de milhar
+    if "," in texto and "." in texto:
+        texto = texto.replace(".", "").replace(",", ".")
+    elif "," in texto:
+        texto = texto.replace(",", ".")
+        
+    try:
+        val = float(texto)
+        return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except ValueError:
+        digits = "".join([c for c in texto if c.isdigit()])
+        if not digits:
+            return ""
+        val = float(digits)
+        return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
 def registrar_historico(acao, detalhes):
     try:
         data_hora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -83,27 +117,13 @@ def registrar_historico(acao, detalhes):
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO historico (data_hora, usuario, acao, detalhes) VALUES (%s, %s, %s, %s);",
-            (data_hora, usuario, acao, detalhes)
+            (data_hora, usuario, limpar_texto(acao), limpar_texto(detalhes))
         )
         conn.commit()
         cursor.close()
         conn.close()
     except Exception:
         pass
-
-def formatar_moeda(valor_str):
-    if not valor_str:
-        return ""
-    texto = str(valor_str).replace("R$", "").strip().replace(".", "").replace(",", ".")
-    try:
-        val = float(texto)
-        return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except ValueError:
-        digits = "".join([c for c in texto if c.isdigit()])
-        if not digits:
-            return ""
-        val = float(digits) / 100 if len(digits) > 2 else float(digits)
-        return f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 def gerar_html_relatorio(titulo, df):
     tabela_html = df.to_html(index=False, border=1, classes="tabela")
@@ -156,8 +176,13 @@ def realizar_login(user, pwd):
         st.error(f"Erro na autenticação: {e}")
 
 if not st.session_state['autenticado']:
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns([1.2, 1.6, 1.2])
     with col2:
+        if os.path.exists("logo.png"):
+            sub_col1, sub_col2, sub_col3 = st.columns([1, 2, 1])
+            with sub_col2:
+                st.image("logo.png", use_container_width=True)
+        
         st.markdown("<h1 style='text-align: center;'>Cadastro de Leads</h1>", unsafe_allow_html=True)
         st.markdown("<h3 style='text-align: center; color: #555;'>ible - Unidade Macaé</h3>", unsafe_allow_html=True)
         st.write("")
@@ -169,6 +194,9 @@ if not st.session_state['autenticado']:
     st.stop()
 
 # --- MENU LATERAL ---
+if os.path.exists("logo.png"):
+    st.sidebar.image("logo.png", width=150)
+
 st.sidebar.title("📋 Menu do Sistema")
 st.sidebar.info(f"Usuário ativo: **{st.session_state['usuario_atual']}**")
 
@@ -183,6 +211,10 @@ if st.sidebar.button("Sair / Deslogar", use_container_width=True):
     st.session_state['usuario_atual'] = ""
     st.rerun()
 
+# Listas padronizadas sem acento
+CURSOS_OPCOES = ["INGLES", "INFORMATICA", "LIBRAS", "GESTAO", "MMR"]
+SITUACAO_OPCOES = ["AGUARDANDO", "MATRICULADO", "DESISTENTE"]
+
 # ==============================================================================
 # PÁGINA 1: CADASTRO E CONSULTA DE LEADS
 # ==============================================================================
@@ -195,35 +227,37 @@ if pagina == "Cadastro e Consulta de Leads":
             with col1:
                 data_reg = st.text_input("DATA", value=datetime.now().strftime("%d/%m/%Y"))
             with col2:
-                responsavel = st.text_input("RESPONSÁVEL")
+                responsavel = st.text_input("RESPONSAVEL")
 
             col3, col4, col5 = st.columns([2, 1, 1.5])
             with col3:
-                aluno = st.text_input("ALUNO (Obrigatório)")
+                aluno = st.text_input("ALUNO (Obrigatorio)")
             with col4:
                 idade = st.text_input("IDADE")
             with col5:
-                curso = st.selectbox("CURSO", ["INGLÊS", "INFORMÁTICA", "LIBRAS", "GESTÃO", "MMR"])
+                curso = st.selectbox("CURSO", CURSOS_OPCOES)
 
             col6, col7, col8, col9 = st.columns([1.2, 1.5, 0.8, 1.5])
             with col6:
-                horario = st.text_input("HORÁRIO")
+                horario = st.text_input("HORARIO")
             with col7:
-                telefone = st.text_input("TELEFONE (Max 11 dígitos)", max_chars=11)
+                telefone = st.text_input("TELEFONE (Max 11 digitos)", max_chars=11)
             with col8:
                 st.write("")
                 st.write("")
                 whatsapp = st.checkbox("WHATSAPP")
             with col9:
-                situacao = st.selectbox("SITUAÇÃO", ["AGUARDANDO", "MATRICULADO", "DESISTENTE"])
+                situacao = st.selectbox("SITUACAO", SITUACAO_OPCOES)
 
-            observacao = st.text_area("OBSERVAÇÃO", height=80)
+            observacao = st.text_area("OBSERVACAO", height=80)
 
             col10, col11 = st.columns(2)
             with col10:
-                matricula = st.text_input("MATRÍCULA (Ex: 150,00)")
+                matricula = st.text_input("MATRICULA (Ex: 150)", placeholder="R$ 0,00")
             with col11:
-                parcela = st.text_input("PARCELA (Ex: 220,00)")
+                parcela = st.text_input("PARCELA (Ex: 220)", placeholder="R$ 0,00")
+
+            st.caption("ℹ️ Todos os textos serão salvos automaticamente em MAIÚSCULAS e SEM ACENTOS. Valores formatados em R$ 0,00.")
 
             if st.form_submit_button("💾 SALVAR REGISTRO", type="primary"):
                 if not aluno.strip():
@@ -232,23 +266,25 @@ if pagina == "Cadastro e Consulta de Leads":
                     st.warning("O campo TELEFONE deve conter apenas números!")
                 else:
                     try:
+                        aluno_limpo = limpar_texto(aluno)
                         mat_fmt = formatar_moeda(matricula)
                         par_fmt = formatar_moeda(parcela)
+                        
                         conn = conectar_bd()
                         cursor = conn.cursor()
                         cursor.execute("""
                             INSERT INTO registros (data, responsavel, aluno, idade, curso, horario, telefone, whatsapp, situacao, observacao, matricula, parcela)
                             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
                         """, (
-                            data_reg.upper(), responsavel.upper(), aluno.upper(), idade.upper(),
-                            curso, horario.upper(), telefone, 1 if whatsapp else 0,
-                            situacao, observacao.upper(), mat_fmt, par_fmt
+                            limpar_texto(data_reg), limpar_texto(responsavel), aluno_limpo, limpar_texto(idade),
+                            limpar_texto(curso), limpar_texto(horario), telefone.strip(), 1 if whatsapp else 0,
+                            limpar_texto(situacao), limpar_texto(observacao), mat_fmt, par_fmt
                         ))
                         conn.commit()
                         cursor.close()
                         conn.close()
-                        registrar_historico("Cadastrar", f"Cadastrou o aluno '{aluno.upper()}' (Curso: {curso})")
-                        st.success(f"Lead '{aluno.upper()}' salvo com sucesso!")
+                        registrar_historico("CADASTRAR", f"Cadastrou o aluno '{aluno_limpo}' (Curso: {curso})")
+                        st.success(f"Lead '{aluno_limpo}' salvo com sucesso!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Erro ao salvar: {e}")
@@ -258,19 +294,19 @@ if pagina == "Cadastro e Consulta de Leads":
 
     col_f1, col_f2, col_f3 = st.columns([2, 1.5, 1.5])
     with col_f1:
-        busca_nome = st.text_input("Buscar por Nome do Aluno").upper()
+        busca_nome = limpar_texto(st.text_input("Buscar por Nome do Aluno"))
     with col_f2:
-        filtro_curso = st.selectbox("Filtrar por Curso", ["TODOS OS CURSOS", "INGLÊS", "INFORMÁTICA", "LIBRAS", "GESTÃO", "MMR"])
+        filtro_curso = st.selectbox("Filtrar por Curso", ["TODOS OS CURSOS"] + CURSOS_OPCOES)
     with col_f3:
-        filtro_situacao = st.selectbox("Filtrar por Situação", ["TODAS AS SITUAÇÕES", "AGUARDANDO", "MATRICULADO", "DESISTENTE"])
+        filtro_situacao = st.selectbox("Filtrar por Situação", ["TODAS AS SITUACOES"] + SITUACAO_OPCOES)
 
     try:
         conn = conectar_bd()
         query = """
-            SELECT id AS "ID", data AS "Data", responsavel AS "Responsável", aluno AS "Aluno", 
-                   idade AS "Idade", curso AS "Curso", horario AS "Horário", telefone AS "Telefone", 
-                   CASE WHEN whatsapp = 1 THEN 'SIM' ELSE 'NÃO' END AS "WhatsApp",
-                   situacao AS "Situação", matricula AS "Matrícula", parcela AS "Parcela", observacao AS "Observação"
+            SELECT id AS "ID", data AS "DATA", responsavel AS "RESPONSAVEL", aluno AS "ALUNO", 
+                   idade AS "IDADE", curso AS "CURSO", horario AS "HORARIO", telefone AS "TELEFONE", 
+                   CASE WHEN whatsapp = 1 THEN 'SIM' ELSE 'NAO' END AS "WHATSAPP",
+                   situacao AS "SITUACAO", matricula AS "MATRICULA", parcela AS "PARCELA", observacao AS "OBSERVACAO"
             FROM registros WHERE 1=1
         """
         params = []
@@ -280,7 +316,7 @@ if pagina == "Cadastro e Consulta de Leads":
         if filtro_curso != "TODOS OS CURSOS":
             query += " AND curso = %s"
             params.append(filtro_curso)
-        if filtro_situacao != "TODAS AS SITUAÇÕES":
+        if filtro_situacao != "TODAS AS SITUACOES":
             query += " AND situacao = %s"
             params.append(filtro_situacao)
 
@@ -339,18 +375,18 @@ elif pagina == "Editar / Excluir Registro":
             conn.close()
 
             if reg:
-                cursos_lista = ["INGLÊS", "INFORMÁTICA", "LIBRAS", "GESTÃO", "MMR"]
-                idx_curso = cursos_lista.index(reg[5]) if reg[5] in cursos_lista else 0
+                curso_atual = limpar_texto(reg[5])
+                idx_curso = CURSOS_OPCOES.index(curso_atual) if curso_atual in CURSOS_OPCOES else 0
 
-                situacoes_lista = ["AGUARDANDO", "MATRICULADO", "DESISTENTE"]
-                idx_sit = situacoes_lista.index(reg[9]) if reg[9] in situacoes_lista else 0
+                sit_atual = limpar_texto(reg[9])
+                idx_sit = SITUACAO_OPCOES.index(sit_atual) if sit_atual in SITUACAO_OPCOES else 0
 
                 with st.form("form_editar_lead"):
                     col1, col2 = st.columns([1, 3])
                     with col1:
                         ed_data = st.text_input("DATA", value=reg[1] or "")
                     with col2:
-                        ed_resp = st.text_input("RESPONSÁVEL", value=reg[2] or "")
+                        ed_resp = st.text_input("RESPONSAVEL", value=reg[2] or "")
 
                     col3, col4, col5 = st.columns([2, 1, 1.5])
                     with col3:
@@ -358,11 +394,11 @@ elif pagina == "Editar / Excluir Registro":
                     with col4:
                         ed_idade = st.text_input("IDADE", value=reg[4] or "")
                     with col5:
-                        ed_curso = st.selectbox("CURSO", cursos_lista, index=idx_curso)
+                        ed_curso = st.selectbox("CURSO", CURSOS_OPCOES, index=idx_curso)
 
                     col6, col7, col8, col9 = st.columns([1.2, 1.5, 0.8, 1.5])
                     with col6:
-                        ed_horario = st.text_input("HORÁRIO", value=reg[6] or "")
+                        ed_horario = st.text_input("HORARIO", value=reg[6] or "")
                     with col7:
                         ed_tel = st.text_input("TELEFONE", value=reg[7] or "", max_chars=11)
                     with col8:
@@ -370,13 +406,13 @@ elif pagina == "Editar / Excluir Registro":
                         st.write("")
                         ed_wpp = st.checkbox("WHATSAPP", value=True if reg[8] == 1 else False)
                     with col9:
-                        ed_sit = st.selectbox("SITUAÇÃO", situacoes_lista, index=idx_sit)
+                        ed_sit = st.selectbox("SITUACAO", SITUACAO_OPCOES, index=idx_sit)
 
-                    ed_obs = st.text_area("OBSERVAÇÃO", value=reg[10] or "", height=80)
+                    ed_obs = st.text_area("OBSERVACAO", value=reg[10] or "", height=80)
 
                     col10, col11 = st.columns(2)
                     with col10:
-                        ed_mat = st.text_input("MATRÍCULA", value=reg[11] or "")
+                        ed_mat = st.text_input("MATRICULA", value=reg[11] or "")
                     with col11:
                         ed_par = st.text_input("PARCELA", value=reg[12] or "")
 
@@ -384,6 +420,7 @@ elif pagina == "Editar / Excluir Registro":
                         if not ed_aluno.strip():
                             st.warning("O campo ALUNO é obrigatório!")
                         else:
+                            aluno_ed_limpo = limpar_texto(ed_aluno)
                             conn = conectar_bd()
                             cursor = conn.cursor()
                             cursor.execute("""
@@ -392,14 +429,14 @@ elif pagina == "Editar / Excluir Registro":
                                     telefone=%s, whatsapp=%s, situacao=%s, observacao=%s, matricula=%s, parcela=%s
                                 WHERE id=%s;
                             """, (
-                                ed_data.upper(), ed_resp.upper(), ed_aluno.upper(), ed_idade.upper(),
-                                ed_curso, ed_horario.upper(), ed_tel, 1 if ed_wpp else 0,
-                                ed_sit, ed_obs.upper(), formatar_moeda(ed_mat), formatar_moeda(ed_par), reg_id
+                                limpar_texto(ed_data), limpar_texto(ed_resp), aluno_ed_limpo, limpar_texto(ed_idade),
+                                limpar_texto(ed_curso), limpar_texto(ed_horario), ed_tel.strip(), 1 if ed_wpp else 0,
+                                limpar_texto(ed_sit), limpar_texto(ed_obs), formatar_moeda(ed_mat), formatar_moeda(ed_par), reg_id
                             ))
                             conn.commit()
                             cursor.close()
                             conn.close()
-                            registrar_historico("Atualizar", f"Atualizou o registro ID {reg_id} ('{ed_aluno.upper()}')")
+                            registrar_historico("ATUALIZAR", f"Atualizou o registro ID {reg_id} ('{aluno_ed_limpo}')")
                             st.success("Registro atualizado com sucesso!")
                             st.rerun()
 
@@ -412,7 +449,7 @@ elif pagina == "Editar / Excluir Registro":
                     conn.commit()
                     cursor.close()
                     conn.close()
-                    registrar_historico("Excluir", f"Excluiu o registro ID {reg_id} ('{reg[3]}')")
+                    registrar_historico("EXCLUIR", f"Excluiu o registro ID {reg_id} ('{reg[3]}')")
                     st.success("Registro excluído!")
                     st.rerun()
     except Exception as e:
@@ -426,7 +463,7 @@ elif pagina == "Histórico de Operações":
     try:
         conn = conectar_bd()
         df_hist = pd.read_sql_query(
-            'SELECT id AS "ID", data_hora AS "Data/Hora", usuario AS "Usuário", acao AS "Ação", detalhes AS "Detalhes" FROM historico ORDER BY id DESC;',
+            'SELECT id AS "ID", data_hora AS "DATA/HORA", usuario AS "USUARIO", acao AS "ACAO", detalhes AS "DETALHES" FROM historico ORDER BY id DESC;',
             conn
         )
         conn.close()
@@ -468,7 +505,7 @@ elif pagina == "Gerenciar Usuários":
                         conn.commit()
                         cursor.close()
                         conn.close()
-                        registrar_historico("Criar Usuário", f"Criou o usuário '{novo_u.strip()}'")
+                        registrar_historico("CRIAR USUARIO", f"Criou o usuario '{novo_u.strip()}'")
                         st.success(f"Usuário '{novo_u.strip()}' criado com sucesso!")
                         st.rerun()
                     except psycopg2.IntegrityError:
@@ -494,7 +531,7 @@ elif pagina == "Gerenciar Usuários":
                     conn.commit()
                     cursor.close()
                     conn.close()
-                    registrar_historico("Excluir Usuário", f"Excluiu o usuário '{user_del}'")
+                    registrar_historico("EXCLUIR USUARIO", f"Excluiu o usuario '{user_del}'")
                     st.success(f"Usuário '{user_del}' removido!")
                     st.rerun()
         except Exception as e:
