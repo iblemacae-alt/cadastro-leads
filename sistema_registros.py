@@ -12,11 +12,10 @@ st.set_page_config(
 
 # --- CONEXÃO COM O BANCO DE DADOS NA NUVEM (SUPABASE) ---
 def conectar_bd():
-    # Credenciais configuradas para conexão direta com o Supabase
     return psycopg2.connect(
-        host=st.secrets.get("postgres", {}).get("host", "db.wnzmjdsbxkoqsvgvkkbg.supabase.co"),
+        host=st.secrets.get("postgres", {}).get("host", "aws-1-us-east-1.pooler.supabase.com"),
         database=st.secrets.get("postgres", {}).get("database", "postgres"),
-        user=st.secrets.get("postgres", {}).get("user", "postgres"),
+        user=st.secrets.get("postgres", {}).get("user", "postgres.wnzmjdsbxkoqsvgvkkbg"),
         password=st.secrets.get("postgres", {}).get("password", "MarcioJamilleMel"),
         port=st.secrets.get("postgres", {}).get("port", "5432")
     )
